@@ -2,7 +2,7 @@
 #define SPONGE_LIBSPONGE_BYTE_STREAM_HH
 
 #include <string>
-
+#include <vector>
 //! \brief An in-order byte stream.
 
 //! Bytes are written on the "input" side and read from the "output"
@@ -17,7 +17,18 @@ class ByteStream {
     // that's a sign that you probably want to keep exploring
     // different approaches.
 
+
+    size_t _capacity{};
+    size_t _left{};
+
     bool _error{};  //!< Flag indicating that the stream suffered an error.
+    size_t _read{};
+    size_t _written{};
+
+    std::vector<char> _data;
+    size_t _front{};
+    size_t _rear{};
+    bool _end_input{};
 
   public:
     //! Construct a stream with room for `capacity` bytes.

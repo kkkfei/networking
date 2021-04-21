@@ -23,8 +23,10 @@ class TCPSender {
     //! outbound queue of segments that the TCPSender wants sent
     std::queue<TCPSegment> _segments_out{};
 
+
     //! retransmission timer for the connection
     unsigned int _initial_retransmission_timeout;
+
 
     //! outgoing stream of bytes that have not yet been sent
     ByteStream _stream;
@@ -34,13 +36,33 @@ class TCPSender {
 
     uint16_t _window_size{1};
 
+    uint64_t _window_left{0};
+
     uint64_t _bytes_in_flight{0};
 
     enum class TCPState {CLOSED=1, SYN_SENT, SYN_ACKED, FIN_SENT, FIN_ACKED};
 
     TCPState _tcpState = TCPState::CLOSED;
 
+    size_t time {0};
+
+    unsigned int _RTO;
+
+    struct OutstandingSegment{
+      TCPSegment segment{};
+      size_t expTime{};
+      bool nobackoff{false};
+    };
+
+    std::deque<OutstandingSegment> q{};
+
+    uint64_t _check_point{0};
+
+    unsigned int _consecutive_tx{0};
   public:
+
+
+
     //! Initialize a TCPSender
     TCPSender(const size_t capacity = TCPConfig::DEFAULT_CAPACITY,
               const uint16_t retx_timeout = TCPConfig::TIMEOUT_DFLT,

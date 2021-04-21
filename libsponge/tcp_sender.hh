@@ -36,6 +36,10 @@ class TCPSender {
 
     uint64_t _bytes_in_flight{0};
 
+    enum class TCPState {CLOSED=1, SYN_SENT, SYN_ACKED, FIN_SENT, FIN_ACKED};
+
+    TCPState _tcpState = TCPState::CLOSED;
+
   public:
     //! Initialize a TCPSender
     TCPSender(const size_t capacity = TCPConfig::DEFAULT_CAPACITY,

@@ -3,6 +3,8 @@
 #include "tcp_config.hh"
 
 #include <random>
+#include <algorithm>
+#include <iostream>
 
 // Dummy implementation of a TCP sender
 
@@ -26,18 +28,97 @@ uint64_t TCPSender::bytes_in_flight() const { return _bytes_in_flight; }
 
 void TCPSender::fill_window() {
     TCPSegment tcp;
-    tcp.header().seqno = _isn;
-    tcp.header().syn = true;
-    
-    _segments_out.push(tcp);
-    _next_seqno =  _next_seqno + 1;
-    _bytes_in_flight = 1;
+    uint64_t dataSize = 0;
+    bool sendSeg = false;
+
+    switch(_tcpState)
+    {
+        case TCPState::CLOSED:
+        {
+            tcp.header().seqno = _isn;
+            tcp.header().syn = true;
+            dataSize = 1;
+            _tcpState = TCPState::SYN_SENT;
+            sendSeg = true;
+            break;
+        }
+
+        case TCPState::SYN_SENT:
+            cout << "SYN_SENT";
+            break;
+
+        case TCPState::SYN_ACKED:
+        {
+            if(_stream.buffer_size() >= _window_size)
+            {
+                tcp.header().seqno = next_seqno();
+                string s = _stream.read(size_t(_window_size)) ;
+                dataSize = s.size();
+                tcp.payload() = Buffer(std::move(s));
+                sendSeg = true;
+            }
+
+            break;
+        }
+
+        case TCPState::FIN_SENT:
+            break;
+
+        case TCPState::FIN_ACKED:
+            break;
+    }
+
+
+
+    if(sendSeg)
+    {
+            cout << int(_tcpState) << "[send]";
+        _segments_out.push(tcp);
+        _next_seqno =  _next_seqno + dataSize;
+        _bytes_in_flight = dataSize;
+    }
+
 }
 
 //! \param ackno The remote receiver's ackno (acknowledgment number)
 //! \param window_size The remote receiver's advertised window size
 void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_size) {
-     DUMMY_CODE(ackno, window_size); 
+
+    
+     if(next_seqno() == ackno) {
+        _window_size = min(window_size, uint16_t(TCPConfig::MAX_PAYLOAD_SIZE));
+        _bytes_in_flight = 0;
+
+        switch(_tcpState)
+        {
+            case TCPState::SYN_SENT:
+            {
+                _tcpState = TCPState::SYN_ACKED;
+                break;
+            }
+
+            
+            case TCPState::SYN_ACKED:
+            {
+                //std::cout << "[" << (next_seqno_absolute() > bytes_in_flight()) << "]" << endl;
+                //fill_window();
+                
+                break;
+            }
+
+
+            case TCPState::FIN_SENT:
+            {
+                _tcpState = TCPState::FIN_ACKED;
+                break;
+            }
+
+            case TCPState::CLOSED:
+            case TCPState::FIN_ACKED:
+                break;
+        }
+
+     }
 }
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method

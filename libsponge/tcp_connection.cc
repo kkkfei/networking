@@ -72,6 +72,9 @@ void TCPConnection::tick(const size_t ms_since_last_tick) {
         return;
     }
 
+    if(_receiver.stream_out().eof() && _linger_after_streams_finish && !_sender.stream_in().eof())
+        _linger_after_streams_finish = false;
+
     while(!_sender.segments_out().empty())
     {
         auto& seg = _sender.segments_out().front();

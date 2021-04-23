@@ -27,6 +27,8 @@ class TCPConnection {
 
     void abortConnect();
 
+    void sendRst();
+
   public:
     //! \name "Input" interface for the writer
     //!@{

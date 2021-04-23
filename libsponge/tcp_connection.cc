@@ -42,10 +42,13 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
     }
     _receiver.segment_received(seg);
 
-    bool hasSend = false;
-    auto ackno = _receiver.ackno();
+    if(_sender.segments_out().empty())
+    {
+        _sender.send_empty_segment();
+    }
     while(!_sender.segments_out().empty())
     {
+        auto ackno = _receiver.ackno();
         auto& s = _sender.segments_out().front();
 
         if(ackno.has_value())
@@ -56,15 +59,7 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         }
         _segments_out.push(s);
         _sender.segments_out().pop();
-        hasSend = true;
     } 
-    if(!hasSend && ackno.has_value()){
-        TCPSegment s;
-        s.header().ack = true;
-        s.header().ackno = *ackno;
-        s.header().win = _receiver.window_size();
-        _segments_out.push(s);
-    }
 
     if(_receiver.stream_out().eof() && _linger_after_streams_finish && !_sender.stream_in().eof())
         _linger_after_streams_finish = false;

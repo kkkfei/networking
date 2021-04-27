@@ -29,6 +29,10 @@ class TCPConnection {
 
     void sendRst();
 
+    size_t _linger_time{0};
+
+    bool _connect{false};
+
   public:
     //! \name "Input" interface for the writer
     //!@{

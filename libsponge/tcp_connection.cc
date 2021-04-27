@@ -36,14 +36,22 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
     }
 
     _time_since_last_segment = 0;
-    if(seg.header().ack) {
+
+    if(seg.header().syn && !_connect) {
+        _sender.fill_window();
+        _connect = true;
+    }
+
+    if(seg.header().ack && _sender.bytes_in_flight() > 0) {
         _sender.ack_received(seg.header().ackno, seg.header().win);
         _sender.fill_window();
     }
     _receiver.segment_received(seg);
 
-    if(_sender.segments_out().empty())
+ 
+    if(_sender.segments_out().empty() && seg.length_in_sequence_space() > 0 && _receiver.ackno().has_value())
     {
+        //send ack
         _sender.send_empty_segment();
     }
     while(!_sender.segments_out().empty())
@@ -60,7 +68,7 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         _segments_out.push(s);
         _sender.segments_out().pop();
     } 
-
+ 
     if(_receiver.stream_out().eof() && _linger_after_streams_finish && !_sender.stream_in().eof())
         _linger_after_streams_finish = false;
 }
@@ -82,8 +90,8 @@ void TCPConnection::sendRst()
 
 void TCPConnection::abortConnect()
 {
-    _receiver.stream_out().error();
-    _sender.stream_in().error();
+    _receiver.stream_out().set_error();
+    _sender.stream_in().set_error();
     _active = false; 
 }
 
@@ -98,12 +106,53 @@ void TCPConnection::tick(const size_t ms_since_last_tick) {
     _sender.tick(ms_since_last_tick); 
     _time_since_last_segment += ms_since_last_tick;
 
+    if(_connect)
+    {
+        _sender.fill_window();
+        while(!_sender.segments_out().empty())
+        {
+            auto& s = _sender.segments_out().front();
+            auto ackno = _receiver.ackno();
+
+            if(ackno.has_value())
+            {
+                s.header().ack = true;
+                s.header().ackno = *ackno;
+                s.header().win = _receiver.window_size();
+            }
+            _segments_out.push(s);
+            _sender.segments_out().pop();
+        } 
+    }
+
+
+
     if(_sender.consecutive_retransmissions() >= TCPConfig::MAX_RETX_ATTEMPTS)
     {
         sendRst();
         abortConnect();
         return;
     }
+
+
+
+    if(_receiver.stream_out().eof() && _sender.stream_in().eof() 
+        && _sender.bytes_in_flight() == 0 && _linger_after_streams_finish)
+    {
+         _linger_time += ms_since_last_tick;
+        if(_linger_time >= 10 * _cfg.rt_timeout) {
+            _linger_after_streams_finish = false;
+        } 
+    }
+
+    if(_receiver.stream_out().eof() && _sender.stream_in().eof() 
+        && _sender.bytes_in_flight() == 0 && !_linger_after_streams_finish) 
+        _active = false;
+
+}
+
+void TCPConnection::end_input_stream() {
+    _sender.stream_in().end_input();
 
     _sender.fill_window();
     while(!_sender.segments_out().empty())
@@ -122,15 +171,12 @@ void TCPConnection::tick(const size_t ms_since_last_tick) {
     } 
 }
 
-void TCPConnection::end_input_stream() {
-    _sender.stream_in().input_ended();
-}
-
 void TCPConnection::connect() {
     _sender.fill_window();
     TCPSegment segment = _sender.segments_out().front();
     _sender.segments_out().pop();
     _segments_out.push(segment);
+    _connect = true;
 }
 
 TCPConnection::~TCPConnection() {

@@ -42,7 +42,7 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         _connect = true;
     }
 
-    if(seg.header().ack && _sender.bytes_in_flight() > 0) {
+    if(_connect && seg.header().ack) {
         _sender.ack_received(seg.header().ackno, seg.header().win);
         _sender.fill_window();
     }
@@ -109,6 +109,14 @@ void TCPConnection::tick(const size_t ms_since_last_tick) {
     if(_connect)
     {
         _sender.fill_window();
+
+        if(_sender.consecutive_retransmissions() > TCPConfig::MAX_RETX_ATTEMPTS)
+        {
+            sendRst();
+            abortConnect();
+            return;
+        }
+
         while(!_sender.segments_out().empty())
         {
             auto& s = _sender.segments_out().front();
@@ -124,17 +132,6 @@ void TCPConnection::tick(const size_t ms_since_last_tick) {
             _sender.segments_out().pop();
         } 
     }
-
-
-
-    if(_sender.consecutive_retransmissions() >= TCPConfig::MAX_RETX_ATTEMPTS)
-    {
-        sendRst();
-        abortConnect();
-        return;
-    }
-
-
 
     if(_receiver.stream_out().eof() && _sender.stream_in().eof() 
         && _sender.bytes_in_flight() == 0 && _linger_after_streams_finish)

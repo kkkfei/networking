@@ -29,20 +29,23 @@ size_t TCPConnection::time_since_last_segment_received() const {
 }
 
 void TCPConnection::segment_received(const TCPSegment &seg) { 
+    
+    _time_since_last_segment = 0;
+
+    if(!_connect) {
+        if(!seg.header().syn) return;
+
+        _sender.fill_window();
+        _connect = true;
+    }
+
     if(seg.header().rst)
     {
         abortConnect();
         return;
     }
 
-    _time_since_last_segment = 0;
-
-    if(seg.header().syn && !_connect) {
-        _sender.fill_window();
-        _connect = true;
-    }
-
-    if(_connect && seg.header().ack) {
+    if(seg.header().ack) {
         _sender.ack_received(seg.header().ackno, seg.header().win);
         _sender.fill_window();
     }
@@ -54,20 +57,7 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
         //send ack
         _sender.send_empty_segment();
     }
-    while(!_sender.segments_out().empty())
-    {
-        auto ackno = _receiver.ackno();
-        auto& s = _sender.segments_out().front();
-
-        if(ackno.has_value())
-        {
-            s.header().ack = true;
-            s.header().ackno = *ackno;
-            s.header().win = _receiver.window_size();
-        }
-        _segments_out.push(s);
-        _sender.segments_out().pop();
-    } 
+    trySendSegmet();
  
     if(_receiver.stream_out().eof() && _linger_after_streams_finish && !_sender.stream_in().eof())
         _linger_after_streams_finish = false;
@@ -95,6 +85,24 @@ void TCPConnection::abortConnect()
     _active = false; 
 }
 
+void TCPConnection::trySendSegmet()
+{
+    while(!_sender.segments_out().empty())
+    {
+        auto ackno = _receiver.ackno();
+        auto& s = _sender.segments_out().front();
+
+        if(ackno.has_value())
+        {
+            s.header().ack = true;
+            s.header().ackno = *ackno;
+            s.header().win = _receiver.window_size();
+        }
+        _segments_out.push(s);
+        _sender.segments_out().pop();
+    } 
+}
+
 bool TCPConnection::active() const { return _active; }
 
 size_t TCPConnection::write(const string &data) {
@@ -103,35 +111,22 @@ size_t TCPConnection::write(const string &data) {
 
 //! \param[in] ms_since_last_tick number of milliseconds since the last call to this method
 void TCPConnection::tick(const size_t ms_since_last_tick) { 
+    if(!_connect) return;
     _sender.tick(ms_since_last_tick); 
     _time_since_last_segment += ms_since_last_tick;
 
-    if(_connect)
+ 
+    _sender.fill_window();
+
+    if(_sender.consecutive_retransmissions() > TCPConfig::MAX_RETX_ATTEMPTS)
     {
-        _sender.fill_window();
-
-        if(_sender.consecutive_retransmissions() > TCPConfig::MAX_RETX_ATTEMPTS)
-        {
-            sendRst();
-            abortConnect();
-            return;
-        }
-
-        while(!_sender.segments_out().empty())
-        {
-            auto& s = _sender.segments_out().front();
-            auto ackno = _receiver.ackno();
-
-            if(ackno.has_value())
-            {
-                s.header().ack = true;
-                s.header().ackno = *ackno;
-                s.header().win = _receiver.window_size();
-            }
-            _segments_out.push(s);
-            _sender.segments_out().pop();
-        } 
+        sendRst();
+        abortConnect();
+        return;
     }
+
+    trySendSegmet();
+ 
 
     if(_receiver.stream_out().eof() && _sender.stream_in().eof() 
         && _sender.bytes_in_flight() == 0 && _linger_after_streams_finish)
@@ -139,6 +134,7 @@ void TCPConnection::tick(const size_t ms_since_last_tick) {
          _linger_time += ms_since_last_tick;
         if(_linger_time >= 10 * _cfg.rt_timeout) {
             _linger_after_streams_finish = false;
+            _active = false;
         } 
     }
 

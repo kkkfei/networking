@@ -33,6 +33,8 @@ class TCPConnection {
 
     bool _connect{false};
 
+    void trySendSegmet();
+
   public:
     //! \name "Input" interface for the writer
     //!@{

@@ -1,4 +1,5 @@
-#include "socket.hh"
+// #include "socket.hh"
+#include "tcp_sponge_socket.hh"
 #include "util.hh"
 
 #include <cstdlib>
@@ -18,7 +19,7 @@ void get_URL(const string &host, const string &path) {
     // the "eof" (end of file).
 
     Address address(host, "http");
-    TCPSocket sock;
+    CS144TCPSocket sock;
     sock.connect(address);
     sock.write(std::string("GET ") + path + " HTTP/1.1\r\nHost: " + host +  "\r\nConnection: close\r\n\r\n");
     while(!sock.eof())
@@ -26,6 +27,7 @@ void get_URL(const string &host, const string &path) {
         std::string ret = sock.read();
         std::cout << ret;
     }
+    sock.wait_until_closed();
 
 }
 

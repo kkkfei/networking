@@ -92,7 +92,7 @@ void TCPSender::fill_window() {
     os.expTime = time + size_t(_RTO);
     os.nobackoff = _window_size == 0;
 
-    q.push_back(os);
+    q.push_back(std::move(os));
 
     if(_window_size > _bytes_in_flight && _stream.buffer_size() > 0)
         fill_window();

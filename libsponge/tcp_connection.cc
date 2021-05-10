@@ -100,7 +100,7 @@ void TCPConnection::trySendSegmet()
             s.header().ackno = *ackno;
             s.header().win = _receiver.window_size();
         }
-        _segments_out.push(s);
+        _segments_out.push(std::move(s));
         _sender.segments_out().pop();
     } 
 }
@@ -150,20 +150,7 @@ void TCPConnection::end_input_stream() {
     _sender.stream_in().end_input();
 
     _sender.fill_window();
-    while(!_sender.segments_out().empty())
-    {
-        auto& s = _sender.segments_out().front();
-        auto ackno = _receiver.ackno();
-
-        if(ackno.has_value())
-        {
-            s.header().ack = true;
-            s.header().ackno = *ackno;
-            s.header().win = _receiver.window_size();
-        }
-        _segments_out.push(s);
-        _sender.segments_out().pop();
-    } 
+    trySendSegmet();
 }
 
 void TCPConnection::connect() {

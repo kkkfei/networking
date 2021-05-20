@@ -45,7 +45,6 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
     if(seg.header().rst)
     {
         abortConnect();
-        sendRst();
         return;
     }
 

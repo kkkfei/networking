@@ -29,7 +29,10 @@ size_t TCPConnection::time_since_last_segment_received() const {
 }
 
 void TCPConnection::segment_received(const TCPSegment &seg) { 
-    
+    //cerr << "segment_received " << seg.header().ack;
+    if(!_active) return;
+
+
     _time_since_last_segment = 0;
 
     if(!_connect) {
@@ -42,6 +45,7 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
     if(seg.header().rst)
     {
         abortConnect();
+        sendRst();
         return;
     }
 
@@ -53,16 +57,17 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
     if(seg.length_in_sequence_space() > 0)
         _receiver.segment_received(seg);
 
- 
+  
+    if(_receiver.stream_out().input_ended() && _linger_after_streams_finish && !_sender.stream_in().eof())
+        _linger_after_streams_finish = false;
+
     if(_sender.segments_out().empty() && seg.length_in_sequence_space() > 0 && _receiver.ackno().has_value())
     {
         //send ack
         _sender.send_empty_segment();
     }
     trySendSegmet();
- 
-    if(_receiver.stream_out().eof() && _linger_after_streams_finish && !_sender.stream_in().eof())
-        _linger_after_streams_finish = false;
+
 }
 
 void TCPConnection::sendRst()
@@ -108,17 +113,21 @@ void TCPConnection::trySendSegmet()
 bool TCPConnection::active() const { return _active; }
 
 size_t TCPConnection::write(const string &data) {
-    return _sender.stream_in().write(data);
+
+    if(data.size() == 0) return 0;
+    size_t sz = _sender.stream_in().write(data);
+
+    _sender.fill_window();
+    trySendSegmet();
+
+    return sz;
 }
 
 //! \param[in] ms_since_last_tick number of milliseconds since the last call to this method
 void TCPConnection::tick(const size_t ms_since_last_tick) { 
-    if(!_connect) return;
+    if(!_connect || !_active) return;
     _sender.tick(ms_since_last_tick); 
     _time_since_last_segment += ms_since_last_tick;
-
- 
-    _sender.fill_window();
 
     if(_sender.consecutive_retransmissions() > TCPConfig::MAX_RETX_ATTEMPTS)
     {
@@ -155,9 +164,7 @@ void TCPConnection::end_input_stream() {
 
 void TCPConnection::connect() {
     _sender.fill_window();
-    TCPSegment segment = _sender.segments_out().front();
-    _sender.segments_out().pop();
-    _segments_out.push(segment);
+    trySendSegmet();
     _connect = true;
 }
 

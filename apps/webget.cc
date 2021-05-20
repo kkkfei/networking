@@ -20,12 +20,15 @@ void get_URL(const string &host, const string &path) {
 
     Address address(host, "http");
     CS144TCPSocket sock;
+    //TCPSocket sock;
     sock.connect(address);
     sock.write(std::string("GET ") + path + " HTTP/1.1\r\nHost: " + host +  "\r\nConnection: close\r\n\r\n");
+
     while(!sock.eof())
     {
         std::string ret = sock.read();
         std::cout << ret;
+
     }
     sock.wait_until_closed();
 

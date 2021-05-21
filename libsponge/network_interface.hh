@@ -50,10 +50,18 @@ class NetworkInterface {
       Address next_hop;
 
       WaitToSendData(const InternetDatagram& pdgram, const Address& pnext_hop) : dgram(pdgram), next_hop(pnext_hop) {}
+    };
 
     std::vector<WaitToSendData> _waitData{};
 
+    std::unordered_map<uint32_t, size_t> _arpRequest{};
+
+    size_t _last_tick{0};
+
+    std::unordered_map<uint32_t, size_t> _mapDueTime{};
+
     void cacheAddress(uint32_t ip_address, const EthernetAddress &ethernet_address);
+
 
   public:
     //! \brief Construct a network interface with given Ethernet (network-access-layer) and IP (internet-layer) addresses

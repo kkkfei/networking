@@ -25,7 +25,6 @@ NetworkInterface::NetworkInterface(const EthernetAddress &ethernet_address, cons
     cerr << "DEBUG: Network interface has Ethernet address " << to_string(_ethernet_address) << " and IP address "
          << ip_address.ip() << "\n";
 
-    _map[ip_address.ipv4_numeric()] = ethernet_address;
 }
 
 //! \param[in] dgram the IPv4 datagram to be sent
@@ -34,6 +33,8 @@ NetworkInterface::NetworkInterface(const EthernetAddress &ethernet_address, cons
 void NetworkInterface::send_datagram(const InternetDatagram &dgram, const Address &next_hop) {
     // convert IP address of next hop to raw 32-bit representation (used in ARP header)
     const uint32_t next_hop_ip = next_hop.ipv4_numeric();
+
+    //std::cout << "  " << next_hop.ip() << "->" << next_hop_ip << std::endl;
 
     auto ite = _map.find(next_hop_ip); 
     // if ip is known, send dgram
@@ -49,8 +50,13 @@ void NetworkInterface::send_datagram(const InternetDatagram &dgram, const Addres
     } 
     else {
         // save message
+        _waitData.push_back({dgram, next_hop});
 
         // request arp
+        auto arpIte = _arpRequest.end();
+        if( (arpIte = _arpRequest.find(next_hop_ip)) != _arpRequest.end()) return;
+        _arpRequest[next_hop_ip] = _last_tick + 5000;
+
         ARPMessage arpMsg;
         arpMsg.opcode = ARPMessage::OPCODE_REQUEST;
         arpMsg.sender_ethernet_address = _ethernet_address;
@@ -64,8 +70,6 @@ void NetworkInterface::send_datagram(const InternetDatagram &dgram, const Addres
         frame.payload() = arpMsg.serialize();
         _frames_out.emplace(std::move(frame));
 
-
-        _waitData.push_back({dgram, next_hop});
     }
 
 
@@ -74,20 +78,24 @@ void NetworkInterface::send_datagram(const InternetDatagram &dgram, const Addres
 
 void NetworkInterface::cacheAddress(uint32_t ip_address, const EthernetAddress &ethernet_address)
 {
-    auto ite = _map.find(ip_address); 
     // if ip is known, send dgram
-    if(ite == _map.end())
+    if(_map.find(ip_address) == _map.end())
     {
         _map[ip_address] = ethernet_address;
-
-        for(auto& data : _waitData)
+        _mapDueTime[ip_address] = _last_tick + 30*1000;
+        for(auto ite=_waitData.begin(); ite != _waitData.end(); )
         {
-            if(data.next_hop.ipv4_numeric() == ip_address)
+            if(ite->next_hop.ipv4_numeric() == ip_address)
             {
-                send_datagram(data.dgram, data.next_hop);
+                send_datagram(ite->dgram, ite->next_hop);
+                ite = _waitData.erase(ite);
             }
         }
+    } else {
+        _map[ip_address] = ethernet_address;
+        _mapDueTime[ip_address] = _last_tick + 30*1000;
     }
+
 }
 
 //! \param[in] frame the incoming Ethernet frame
@@ -110,7 +118,7 @@ optional<InternetDatagram> NetworkInterface::recv_frame(const EthernetFrame &fra
                 arpMsg.sender_ethernet_address = _ethernet_address;
                 arpMsg.sender_ip_address = _ip_address.ipv4_numeric();   
                 arpMsg.target_ip_address = msg.sender_ip_address;
-                arpMsg.target_ethernet_address = msg.target_ethernet_address;
+                arpMsg.target_ethernet_address = msg.sender_ethernet_address;
 
                 EthernetFrame f;
                 f.header().type = EthernetHeader::TYPE_ARP;
@@ -118,6 +126,8 @@ optional<InternetDatagram> NetworkInterface::recv_frame(const EthernetFrame &fra
                 f.header().dst = frame.header().src;
                 f.payload() = arpMsg.serialize();
                 _frames_out.emplace(std::move(f));
+
+                cacheAddress(msg.sender_ip_address , msg.sender_ethernet_address);
 
             } else if(msg.opcode == ARPMessage::OPCODE_REPLY)
             {
@@ -145,4 +155,27 @@ optional<InternetDatagram> NetworkInterface::recv_frame(const EthernetFrame &fra
 }
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
-void NetworkInterface::tick(const size_t ms_since_last_tick) { DUMMY_CODE(ms_since_last_tick); }
+void NetworkInterface::tick(const size_t ms_since_last_tick) { 
+    _last_tick += ms_since_last_tick;
+
+    for(auto ite=_mapDueTime.begin(); ite!=_mapDueTime.end(); )
+    {
+        if(ite->second < _last_tick) {
+            //std::cout <<"*********************** erase ip: " << ite->first << "\n";
+            _map.erase(ite->first);
+            ite = _mapDueTime.erase(ite);
+        } else {
+            ++ite;
+        }
+    }
+
+    for(auto ite=_arpRequest.begin(); ite!=_arpRequest.end(); )
+    {
+        if(ite->second < _last_tick)
+        {
+            ite = _arpRequest.erase(ite);
+        } else {
+            ++ite;
+        }
+    }
+}
